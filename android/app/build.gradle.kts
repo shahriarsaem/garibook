@@ -23,6 +23,22 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appLabel"] = "Garibook"
+    }
+
+    flavorDimensions += listOf("app")
+
+    productFlavors {
+        create("dev") {
+            dimension = "app"
+            applicationId = "com.example.garibook.dev"
+            manifestPlaceholders["appLabel"] = "Garibook Dev"
+        }
+        create("prod") {
+            dimension = "app"
+            applicationId = "com.example.garibook"
+            manifestPlaceholders["appLabel"] = "Garibook"
+        }
     }
 
     buildTypes {

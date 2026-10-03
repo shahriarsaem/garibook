@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import '../../../../core/config/flavor_config.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/widgets/dev_banner.dart';
 import '../../data/models/route_data.dart';
@@ -345,12 +346,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ],
           ),
 
-          // ── Dev Banner ───────────────────────────────────────────────────
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 12,
-            left: 16,
-            child: const DevBanner(),
-          ),
+          // ── Dev Banner (Visible only for dev flavor) ─────────────────────
+          if (ref.watch(flavorConfigProvider).showDevBanner)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 12,
+              left: 16,
+              child: const DevBanner(),
+            ),
 
           // ── Location Status / Permission Alerts ───────────────────────────
           if (locationState != null && !navState.isNavigating)

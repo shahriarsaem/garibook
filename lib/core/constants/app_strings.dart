@@ -1,7 +1,9 @@
 class AppStrings {
   AppStrings._();
 
-  static const String appName = 'Route Navigation';
+  static const String appName = 'Garibook';
+  static const String appNameDev = 'Garibook Dev';
+  static const String appNameProd = 'Garibook';
   static const String devBanner = 'DEV';
   static const String start = 'Start';
   static const String reset = 'Reset';

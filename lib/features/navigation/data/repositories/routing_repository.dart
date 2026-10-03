@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../../core/config/flavor_config.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../models/route_data.dart';
 
@@ -22,11 +23,15 @@ abstract class RoutingRepository {
 
 /// Concrete implementation handling OSRM HTTP requests
 class OsrmRoutingRepository implements RoutingRepository {
+  final String _baseUrl;
   final http.Client _httpClient;
   static const Duration _defaultTimeout = Duration(seconds: 15);
 
-  OsrmRoutingRepository({http.Client? httpClient})
-      : _httpClient = httpClient ?? http.Client();
+  OsrmRoutingRepository({
+    String? baseUrl,
+    http.Client? httpClient,
+  })  : _baseUrl = baseUrl ?? 'https://router.project-osrm.org',
+        _httpClient = httpClient ?? http.Client();
 
   @override
   Future<RouteData> fetchRoute({
@@ -48,7 +53,7 @@ class OsrmRoutingRepository implements RoutingRepository {
 
     // Note: OSRM expects coordinates in {longitude},{latitude} order
     final uri = Uri.parse(
-      'https://router.project-osrm.org/route/v1/driving/'
+      '$_baseUrl/route/v1/driving/'
       '$startLng,$startLat;$endLng,$endLat?overview=full&geometries=geojson',
     );
 
@@ -109,7 +114,11 @@ class OsrmRoutingRepository implements RoutingRepository {
 
 /// Provider to inject the routing repository
 final routingRepositoryProvider = Provider<RoutingRepository>((ref) {
+  final flavorConfig = ref.watch(flavorConfigProvider);
   final client = http.Client();
   ref.onDispose(() => client.close());
-  return OsrmRoutingRepository(httpClient: client);
+  return OsrmRoutingRepository(
+    baseUrl: flavorConfig.routingBaseUrl,
+    httpClient: client,
+  );
 });
