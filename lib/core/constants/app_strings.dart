@@ -34,4 +34,21 @@ class AppStrings {
   static const String min = 'min';
   static const String hr = 'hr';
   static const String clearRouteTooltip = 'Clear selected destination';
+  static const String pause = 'Pause';
+  static const String resume = 'Resume';
+  static const String cancelNavigation = 'Cancel Navigation';
+  static const String cancel = 'Cancel';
+  static const String speed = 'Speed';
+  static const String speed1x = '1x';
+  static const String speed2x = '2x';
+  static const String speed5x = '5x';
+  static const String remaining = 'Remaining';
+  static const String eta = 'ETA';
+  static const String navigating = 'Navigating';
+  static const String paused = 'Paused';
+  static const String destinationReached = 'Destination Reached!';
+  static const String tripCompleted = 'You have arrived at your destination.';
+  static const String done = 'Done';
+  static const String startNewTrip = 'Start New Trip';
+  static const String recenterVehicle = 'Re-center on vehicle';
 }

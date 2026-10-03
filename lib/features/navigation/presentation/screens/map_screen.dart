@@ -8,8 +8,10 @@ import '../../data/models/route_data.dart';
 import '../../data/repositories/location_repository.dart';
 import '../controllers/location_controller.dart';
 import '../controllers/navigation_controller.dart';
+import '../widgets/car_marker.dart';
 import '../widgets/destination_marker.dart';
 import '../widgets/location_status_overlay.dart';
+import '../widgets/navigation_dashboard.dart';
 import '../widgets/trip_summary_card.dart';
 import '../widgets/user_location_marker.dart';
 
@@ -23,6 +25,8 @@ class MapScreen extends ConsumerStatefulWidget {
 class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
   bool _hasInitiallyCentered = false;
+  bool _isCameraFollowing = false;
+  DateTime _lastCameraMoveTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   // Default coordinate (Dhaka center fallback until live GPS is acquired)
   static const LatLng _defaultCenter = LatLng(23.8103, 90.4125);
@@ -37,6 +41,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       );
     } else {
       ref.read(locationControllerProvider.notifier).refreshLocation();
+    }
+  }
+
+  void _onRecenterPressed(LocationState? locationState, NavigationState navState) {
+    if (navState.isNavigating && navState.carPosition != null) {
+      setState(() {
+        _isCameraFollowing = true;
+      });
+      _mapController.move(
+        navState.carPosition!,
+        16.5,
+      );
+    } else {
+      _recenterToUser(locationState);
     }
   }
 
@@ -65,17 +83,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       return;
     }
 
+    setState(() {
+      _isCameraFollowing = true;
+    });
+
     ref.read(navigationControllerProvider.notifier).startAnimation();
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${AppStrings.tripSummary}: ${route.formattedDistance}, ${route.formattedDuration}',
-        ),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+
+    if (route.points.isNotEmpty) {
+      _mapController.move(route.points.first, 16.5);
+    }
   }
 
   @override
@@ -86,9 +102,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final location = locationState?.location;
     final navState = ref.watch(navigationControllerProvider);
 
-    // Fit map bounds when a new route is fetched
+    // Fit map bounds when a new route is fetched and not yet navigating
     ref.listen(navigationControllerProvider, (previous, next) {
-      if (next.route != null &&
+      if (!next.isNavigating &&
+          next.route != null &&
           next.route != previous?.route &&
           next.route!.points.length >= 2) {
         final bounds = LatLngBounds.fromPoints(next.route!.points);
@@ -104,6 +121,43 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
         );
+      }
+
+      // Smooth camera follow while vehicle is moving
+      if (next.isNavigating &&
+          !next.isPaused &&
+          !next.isCompleted &&
+          next.carPosition != null &&
+          _isCameraFollowing) {
+        final now = DateTime.now();
+        if (now.difference(_lastCameraMoveTime).inMilliseconds >= 50) {
+          _lastCameraMoveTime = now;
+          _mapController.move(
+            next.carPosition!,
+            _mapController.camera.zoom,
+          );
+        }
+      }
+
+      // Handle trip completion camera centering
+      if (next.isCompleted && previous?.isCompleted != true) {
+        if (_isCameraFollowing) {
+          setState(() {
+            _isCameraFollowing = false;
+          });
+        }
+        if (next.carPosition != null) {
+          _mapController.move(next.carPosition!, 16.0);
+        }
+      }
+
+      // Reset camera follow if navigation stopped or cancelled
+      if (previous?.isNavigating == true && !next.isNavigating) {
+        if (_isCameraFollowing) {
+          setState(() {
+            _isCameraFollowing = false;
+          });
+        }
       }
     });
 
@@ -140,6 +194,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ? LatLng(location.latitude, location.longitude)
         : _defaultCenter;
 
+    final isFollowingCar = navState.isNavigating && _isCameraFollowing;
+
     return Scaffold(
       body: Stack(
         children: [
@@ -151,7 +207,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               initialZoom: _defaultZoom,
               minZoom: 3.0,
               maxZoom: 19.0,
+              onPositionChanged: (camera, hasGesture) {
+                // When user pans manually while navigating, pause camera follow
+                if (hasGesture && _isCameraFollowing) {
+                  setState(() {
+                    _isCameraFollowing = false;
+                  });
+                }
+              },
               onTap: (tapPosition, point) {
+                // Ignore map tap destination selection while actively navigating
+                if (navState.isNavigating) return;
+
                 final currentLoc =
                     ref.read(locationControllerProvider).value?.location;
                 final start = currentLoc != null
@@ -168,25 +235,56 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 userAgentPackageName: 'com.example.garibook',
               ),
 
-              // Polyline Layer (Route with high-visibility outer border)
+              // Polyline Layer (Split rendering when navigating, standard when previewing)
               if (navState.hasRoute)
                 PolylineLayer(
                   polylines: [
-                    Polyline(
-                      points: navState.route!.points,
-                      strokeWidth: 5.0,
-                      color: theme.colorScheme.primary,
-                      borderStrokeWidth: 2.5,
-                      borderColor:
-                          theme.colorScheme.primary.withValues(alpha: 0.35),
-                      strokeCap: StrokeCap.round,
-                      strokeJoin: StrokeJoin.round,
-                    ),
+                    if (navState.isNavigating) ...[
+                      if (navState.completedPoints.length >= 2)
+                        // Completed segment (muted, subtle outline)
+                        Polyline(
+                          points: navState.completedPoints,
+                          strokeWidth: 5.0,
+                          color:
+                              theme.colorScheme.outline.withValues(alpha: 0.5),
+                          borderStrokeWidth: 1.5,
+                          borderColor: theme.colorScheme.outlineVariant
+                              .withValues(alpha: 0.3),
+                          strokeCap: StrokeCap.round,
+                          strokeJoin: StrokeJoin.round,
+                        ),
+                      if (navState.remainingPoints.length >= 2)
+                        // Upcoming segment (vibrant primary blue with glow border)
+                        Polyline(
+                          points: navState.remainingPoints,
+                          strokeWidth: 5.5,
+                          color: theme.colorScheme.primary,
+                          borderStrokeWidth: 2.5,
+                          borderColor:
+                              theme.colorScheme.primary.withValues(alpha: 0.35),
+                          strokeCap: StrokeCap.round,
+                          strokeJoin: StrokeJoin.round,
+                        ),
+                    ] else ...[
+                      // Full route preview
+                      Polyline(
+                        points: navState.route!.points,
+                        strokeWidth: 5.0,
+                        color: theme.colorScheme.primary,
+                        borderStrokeWidth: 2.5,
+                        borderColor:
+                            theme.colorScheme.primary.withValues(alpha: 0.35),
+                        strokeCap: StrokeCap.round,
+                        strokeJoin: StrokeJoin.round,
+                      ),
+                    ],
                   ],
                 ),
 
               // User Location Accuracy Circle
-              if (location != null && location.accuracy > 0)
+              if (location != null &&
+                  location.accuracy > 0 &&
+                  (!navState.isNavigating || navState.carPosition == null))
                 CircleLayer(
                   circles: [
                     CircleMarker(
@@ -201,11 +299,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ],
                 ),
 
-              // Markers Layer: User Location & Destination Pin
+              // Markers Layer: User Location, Destination Pin & Car Marker
               MarkerLayer(
                 markers: [
-                  // User Location Marker
-                  if (location != null)
+                  // User Location Marker (visible when not navigating)
+                  if (location != null &&
+                      (!navState.isNavigating || navState.carPosition == null))
                     Marker(
                       point: LatLng(location.latitude, location.longitude),
                       width: 56,
@@ -228,6 +327,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         key: ValueKey(navState.destination),
                       ),
                     ),
+
+                  // Animated Top-down Car Marker
+                  if (navState.carPosition != null)
+                    Marker(
+                      key: const ValueKey('car_marker'),
+                      point: navState.carPosition!,
+                      width: 56,
+                      height: 56,
+                      alignment: Alignment.center,
+                      child: CarMarker(
+                        bearing: navState.carBearing,
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -241,7 +353,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
 
           // ── Location Status / Permission Alerts ───────────────────────────
-          if (locationState != null)
+          if (locationState != null && !navState.isNavigating)
             Positioned(
               top: MediaQuery.paddingOf(context).top + 48,
               left: 0,
@@ -301,95 +413,136 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
 
-          // ── Recenter FAB Button ──────────────────────────────────────────
-          Positioned(
-            right: 16,
-            bottom: MediaQuery.paddingOf(context).bottom +
-                (navState.hasDestination ? 240 : 96),
-            child: FloatingActionButton(
-              heroTag: 'recenter_btn',
-              tooltip: AppStrings.recenter,
-              onPressed: () => _recenterToUser(locationState),
-              child: Icon(
-                location != null
-                    ? Icons.my_location_rounded
-                    : Icons.location_searching_rounded,
-                color: theme.colorScheme.primary,
+          // ── Recenter / Follow FAB Button ─────────────────────────────────
+          if (!navState.isCompleted)
+            Positioned(
+              right: 16,
+              bottom: MediaQuery.paddingOf(context).bottom +
+                  (navState.hasDestination ? 240 : 96),
+              child: FloatingActionButton(
+                heroTag: 'recenter_btn',
+                tooltip: navState.isNavigating
+                    ? AppStrings.recenterVehicle
+                    : AppStrings.recenter,
+                onPressed: () => _onRecenterPressed(locationState, navState),
+                child: Icon(
+                  navState.isNavigating
+                      ? (isFollowingCar
+                          ? Icons.navigation_rounded
+                          : Icons.near_me_disabled_rounded)
+                      : (location != null
+                          ? Icons.my_location_rounded
+                          : Icons.location_searching_rounded),
+                  color: isFollowingCar
+                      ? theme.colorScheme.primary
+                      : (navState.isNavigating
+                          ? theme.colorScheme.onSurfaceVariant
+                          : theme.colorScheme.primary),
+                ),
               ),
             ),
-          ),
 
-          // ── Bottom Panel (Instruction Pill or Trip Summary Card) ─────────
+          // ── Bottom Panel (Instruction Pill, Trip Summary Card, or Navigation Dashboard) ──
           Positioned(
             bottom: 24,
             left: 16,
             right: 16,
             child: SafeArea(
-              child: navState.hasDestination
-                  ? TripSummaryCard(
-                      route: navState.route,
-                      isLoading: navState.isLoading,
-                      errorMessage: navState.errorMessage,
-                      onStart: () => _onStartPressed(location, navState.route),
-                      onClear: () => ref
+              child: navState.isNavigating
+                  ? NavigationDashboard(
+                      state: navState,
+                      onPause: () => ref
                           .read(navigationControllerProvider.notifier)
-                          .clearDestination(),
-                      onRetry: () {
-                        final loc = ref
-                            .read(locationControllerProvider)
-                            .value
-                            ?.location;
+                          .pauseAnimation(),
+                      onResume: () => ref
+                          .read(navigationControllerProvider.notifier)
+                          .resumeAnimation(),
+                      onCancel: () {
+                        setState(() {
+                          _isCameraFollowing = false;
+                        });
                         ref
                             .read(navigationControllerProvider.notifier)
-                            .retryFetchRoute(
-                              loc != null
-                                  ? LatLng(loc.latitude, loc.longitude)
-                                  : null,
-                            );
+                            .cancelNavigation();
+                      },
+                      onSpeedChanged: (multiplier) => ref
+                          .read(navigationControllerProvider.notifier)
+                          .updateSpeedMultiplier(multiplier),
+                      onDone: () {
+                        setState(() {
+                          _isCameraFollowing = false;
+                        });
+                        ref
+                            .read(navigationControllerProvider.notifier)
+                            .clearDestination();
                       },
                     )
-                  : Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color:
-                              theme.colorScheme.surface.withValues(alpha: 0.95),
-                          borderRadius: BorderRadius.circular(30),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.12),
-                              blurRadius: 8,
-                              offset: const Offset(0, 3),
+                  : (navState.hasDestination
+                      ? TripSummaryCard(
+                          route: navState.route,
+                          isLoading: navState.isLoading,
+                          errorMessage: navState.errorMessage,
+                          onStart: () =>
+                              _onStartPressed(location, navState.route),
+                          onClear: () => ref
+                              .read(navigationControllerProvider.notifier)
+                              .clearDestination(),
+                          onRetry: () {
+                            final loc = ref
+                                .read(locationControllerProvider)
+                                .value
+                                ?.location;
+                            ref
+                                .read(navigationControllerProvider.notifier)
+                                .retryFetchRoute(
+                                  loc != null
+                                      ? LatLng(loc.latitude, loc.longitude)
+                                      : null,
+                                );
+                          },
+                        )
+                      : Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
                             ),
-                          ],
-                          border: Border.all(
-                            color: theme.colorScheme.outlineVariant
-                                .withValues(alpha: 0.5),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.touch_app_rounded,
-                              color: theme.colorScheme.primary,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              AppStrings.tapToSelectDestination,
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                color: theme.colorScheme.onSurface,
-                                fontWeight: FontWeight.w600,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surface
+                                  .withValues(alpha: 0.95),
+                              borderRadius: BorderRadius.circular(30),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.12),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                              border: Border.all(
+                                color: theme.colorScheme.outlineVariant
+                                    .withValues(alpha: 0.5),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.touch_app_rounded,
+                                  color: theme.colorScheme.primary,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  AppStrings.tapToSelectDestination,
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    color: theme.colorScheme.onSurface,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )),
             ),
           ),
         ],
