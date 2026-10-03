@@ -19,4 +19,19 @@ class AppStrings {
   static const String currentLocation = 'Current Location';
   static const String locationNotAvailable = 'Location not available yet.';
   static const String osmAttribution = '© OpenStreetMap contributors';
+  static const String destination = 'Destination';
+  static const String tapToSelectDestination = 'Tap map to select destination';
+  static const String fetchingRoute = 'Fetching route...';
+  static const String routeNotFound = 'No driving route found to this location.';
+  static const String routeFetchError =
+      'Failed to calculate route. Please check your internet connection.';
+  static const String tripSummary = 'Trip Summary';
+  static const String distance = 'Distance';
+  static const String estimatedTime = 'Est. Time';
+  static const String clear = 'Clear';
+  static const String km = 'km';
+  static const String m = 'm';
+  static const String min = 'min';
+  static const String hr = 'hr';
+  static const String clearRouteTooltip = 'Clear selected destination';
 }
