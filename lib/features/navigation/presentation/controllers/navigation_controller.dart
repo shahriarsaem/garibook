@@ -1,5 +1,4 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../data/repositories/routing_repository.dart';
 
 /// Represents the navigation state (car animation, polyline, speed)
 class NavigationState {

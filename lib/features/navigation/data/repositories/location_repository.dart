@@ -32,6 +32,11 @@ class LocationData {
       altitude: (map['altitude'] as num).toDouble(),
     );
   }
+
+  @override
+  String toString() {
+    return 'LocationData(lat: $latitude, lng: $longitude, accuracy: ${accuracy}m, bearing: $bearing°, speed: ${speed}m/s, altitude: ${altitude}m)';
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
