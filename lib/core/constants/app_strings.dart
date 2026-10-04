@@ -21,8 +21,13 @@ class AppStrings {
   static const String currentLocation = 'Current Location';
   static const String locationNotAvailable = 'Location not available yet.';
   static const String osmAttribution = '© OpenStreetMap contributors';
+  static const String osmAttributionUrl =
+      'https://www.openstreetmap.org/copyright';
   static const String destination = 'Destination';
-  static const String tapToSelectDestination = 'Tap map to select destination';
+  static const String tapToSelectDestination =
+      'Long-press or tap map to set destination';
+  static const String longPressToSelectDestination =
+      'Long-press map to select destination';
   static const String fetchingRoute = 'Fetching route...';
   static const String routeNotFound = 'No driving route found to this location.';
   static const String routeFetchError =

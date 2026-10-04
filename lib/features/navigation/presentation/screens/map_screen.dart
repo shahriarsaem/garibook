@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
@@ -13,6 +14,7 @@ import '../widgets/car_marker.dart';
 import '../widgets/destination_marker.dart';
 import '../widgets/location_status_overlay.dart';
 import '../widgets/navigation_dashboard.dart';
+import '../widgets/osm_attribution_badge.dart';
 import '../widgets/trip_summary_card.dart';
 import '../widgets/user_location_marker.dart';
 
@@ -25,13 +27,49 @@ class MapScreen extends ConsumerStatefulWidget {
 
 class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
+  late final AppLifecycleListener _lifecycleListener;
   bool _hasInitiallyCentered = false;
   bool _isCameraFollowing = false;
+  bool _wasAutoPausedByLifecycle = false;
   DateTime _lastCameraMoveTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   // Default coordinate (Dhaka center fallback until live GPS is acquired)
   static const LatLng _defaultCenter = LatLng(23.8103, 90.4125);
   static const double _defaultZoom = 15.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycleListener = AppLifecycleListener(
+      onPause: _onAppPaused,
+      onHide: _onAppPaused,
+      onResume: _onAppResumed,
+    );
+  }
+
+  void _onAppPaused() {
+    final navState = ref.read(navigationControllerProvider);
+    if (navState.isNavigating && !navState.isPaused && !navState.isCompleted) {
+      _wasAutoPausedByLifecycle = true;
+      ref.read(navigationControllerProvider.notifier).pauseAnimation();
+    }
+  }
+
+  void _onAppResumed() {
+    if (_wasAutoPausedByLifecycle) {
+      _wasAutoPausedByLifecycle = false;
+      final navState = ref.read(navigationControllerProvider);
+      if (navState.isNavigating && navState.isPaused && !navState.isCompleted) {
+        ref.read(navigationControllerProvider.notifier).resumeAnimation();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener.dispose();
+    super.dispose();
+  }
 
   void _recenterToUser(LocationState? locationState) {
     final location = locationState?.location;
@@ -57,6 +95,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     } else {
       _recenterToUser(locationState);
     }
+  }
+
+  void _onDestinationSelected(LatLng point, {bool isLongPress = false}) {
+    final navState = ref.read(navigationControllerProvider);
+    // Ignore destination selection while actively navigating
+    if (navState.isNavigating) return;
+
+    if (isLongPress) {
+      HapticFeedback.selectionClick();
+    }
+
+    final currentLoc =
+        ref.read(locationControllerProvider).value?.location;
+    final start = currentLoc != null
+        ? LatLng(currentLoc.latitude, currentLoc.longitude)
+        : null;
+    ref
+        .read(navigationControllerProvider.notifier)
+        .selectDestination(point, start);
   }
 
   void _onStartPressed(LocationData? location, RouteData? route) {
@@ -216,19 +273,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   });
                 }
               },
-              onTap: (tapPosition, point) {
-                // Ignore map tap destination selection while actively navigating
-                if (navState.isNavigating) return;
-
-                final currentLoc =
-                    ref.read(locationControllerProvider).value?.location;
-                final start = currentLoc != null
-                    ? LatLng(currentLoc.latitude, currentLoc.longitude)
-                    : null;
-                ref
-                    .read(navigationControllerProvider.notifier)
-                    .selectDestination(point, start);
-              },
+              onTap: (tapPosition, point) =>
+                  _onDestinationSelected(point, isLongPress: false),
+              onLongPress: (tapPosition, point) =>
+                  _onDestinationSelected(point, isLongPress: true),
             ),
             children: [
               TileLayer(
@@ -414,6 +462,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
               ),
             ),
+
+          // ── OSM Attribution Badge ─────────────────────────────────────────
+          Positioned(
+            left: 16,
+            bottom: MediaQuery.paddingOf(context).bottom +
+                (navState.isNavigating
+                    ? 210
+                    : (navState.hasDestination ? 240 : 88)),
+            child: const OsmAttributionBadge(),
+          ),
 
           // ── Recenter / Follow FAB Button ─────────────────────────────────
           if (!navState.isCompleted)
